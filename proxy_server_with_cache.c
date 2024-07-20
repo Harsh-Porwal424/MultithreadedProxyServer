@@ -422,7 +422,34 @@ int main(int argc, char *argv[]){
     close(proxy_socketId);
     return 0;
 
- 
+}
+
+cache_element* find(char* url){
+
+    cache_element* site = NULL;
+    int temp_lock_val = pthread_mutex_lock(&lock);
+    printf("Remove Cache Lock Acquired: %d\n", temp_lock_val);
+
+    if(head != NULL){
+        site = head;
+        while(site != NULL){
+            if(!strcmp(site->url, url)){
+                printf("LRU time track before: %ld\n", site->lru_time_track);
+                printf("Cache Hit & URL Found: %s\n", site->url);
+                site->lru_time_track = time(NULL);
+                printf("LRU time track After Updating: %ld\n", site->lru_time_track);
+            }
+            site = site->next;
+        }
+    }
+    else{
+        printf("Cache is Empty\n");
+        printf("URL Not Found: %s\n", url);
+    }
+
+    temp_lock_val = pthread_mutex_unlock(&lock);
+    printf("Remove Cache Lock Released: %d\n", temp_lock_val);
+    return site;
 
 }
 
