@@ -50,6 +50,10 @@ pthread_mutex_t lock;
 cache_element* head;
 int cache_size;
 
+void *thread_fn_handle_client(void *socketNew){
+    
+}
+
 int main(int argc, char *argv[]){
     int client_socketID, client_len;
     //sockaddr is a generic structure for socket addresses. It contains address family, port number, and IP address.
@@ -97,7 +101,7 @@ int main(int argc, char *argv[]){
         perror("ERROR on binding, Port is not available\n");
         exit(1);
     }
-    printf("Proxy server is listening... Binding on port: %d\n", port_number);
+    printf("Proxy server is listening... Binded on port: %d\n", port_number);
     //listening for incoming connections
 
     int listen_status = listen(proxy_socketId, MAX_CLIENTS);
@@ -109,6 +113,7 @@ int main(int argc, char *argv[]){
 
     //definnig the iterator.
     int i = 0;
+    //Connected_socketId is used to store the socket IDs of the connected clients. 
     int Connected_socketId[MAX_CLIENTS];
 
     while(1){
@@ -128,12 +133,18 @@ int main(int argc, char *argv[]){
         //copying the client_addr pointer to client_pt for easier use
         struct sockaddr_in * client_pt = (struct sockaddr_in *)&client_addr;
         struct in_addr ip_addr = client_pt->sin_addr;
-        char str[INET_ADDRSTRLEN];
+        
         //in_ntop converts an Internet address in network byte order to a printable string in IPv4
-        inet_ntop(AF_INET, &ip_addr, str, INET6_ADDRSTRLEN);
-
-
-    }   
+        char str[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, &ip_addr, str, INET_ADDRSTRLEN);
+        printf("Connection established with client IP: %s, Port: %d\n", str, ntohs(client_pt->sin_port));
+        
+        //yaha se ham multiple threads me sockets initiate karenge. jo parallel execution se karenge.
+        pthread_create(&tid[i], NULL, thread_fn_handle_client, (void *)&Connected_socketId[i]);
+        i++;
+    }
+    close(proxy_socketId);
+    return 0;
 
  
 
