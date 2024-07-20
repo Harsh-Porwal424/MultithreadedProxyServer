@@ -51,6 +51,107 @@ pthread_mutex_t lock;
 cache_element* head;
 int cache_size;
 
+int connectRemoteServer(char* host_addr, int port_number){
+
+    int remoteSocketId = socket(AF_INET, SOCK_STREAM, 0);
+
+    if(remoteSocketId < 0){
+        printf("Error to create a socket\n");
+        return -1;
+    }
+    struct hostent* host = gethostbyname(host_addr);
+    if(host == NULL){
+        fprintf(stderr, "Error to get host by name\n");
+        return -1; 
+    }
+
+    struct sockaddr_in server_addr;
+    bzero((char *)&server_addr, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(port_number);
+
+    bcopy((char *)&host->h_addr, (char *)&server_addr.sin_addr.s_addr, host->h_length);
+
+    if(connect(remoteSocketId, (struct sockaddr *)&server_addr, (size_t)sizeof(server_addr) < 0)){
+        fprintf(stderr, "Error to connect to the server\n");
+        return -1;
+    }
+    return remoteSocketId;
+
+}
+
+int handle_request(int clientSocketId, ParsedRequest *request, char* tempReq){
+
+    char* buf = (char *)malloc(sizeof(char)*MAX_BYTES);
+    strcpy(buf,"GET ");
+    strcat(buf, request->path);
+    strcat(buf, " ");
+    strcat(buf, request->version);
+    strcat(buf, "\r\n");
+
+    size_t len = strlen(buf);
+
+    if(ParsedHeader_set(request, "Connection", "close") < 0){
+        printf("Failed to set Connection: close\n");
+        printf("Set header key is failed\n");
+    }
+
+    if(ParsedHeader_get(request, "Host") == NULL){
+        if(ParsedHeader_set(request, "Host", request->host) < 0){
+            printf("Failed to set Host\n");
+            printf("Set Host header key is not working\n");
+        }
+    }
+
+    if(ParsedRequest_unparse_headers(request, buf+len, (size_t)MAX_BYTES - len) < 0){
+        printf("Failed to unparse headers\n");
+    }
+
+    int server_port = 80;
+    if(request->port != NULL){
+        server_port = atoi(request->port);
+    }
+
+    int remoteSockerId = connectRemoteServer(request->host, server_port);
+
+    if(remoteSockerId < 0){
+        printf("Failed to connect to remote server\n");
+        close(clientSocketId);
+        close(remoteSockerId);
+        return -1;
+    }
+
+    int bytes_send = send(remoteSockerId, buf, strlen(buf),0);
+    bzero(buf, MAX_BYTES);
+
+    bytes_send = recv(remoteSockerId, buf, MAX_BYTES-1, 0);
+
+    char *temp_buffer = (char*)malloc(MAX_BYTES*sizeof(char));
+    int temp_buffer_size = MAX_BYTES;
+    int temp_buffer_index = 0;
+
+    while(bytes_send > 0){
+        //client thread ko bhej rahe
+        bytes_send = send(clientSocketId, buf, bytes_send, 0);
+        //data temp buffer me store kar rahe, to add in cache later
+        for(int i = 0; i < bytes_send/sizeof(char); i++){
+            temp_buffer[temp_buffer_index++] = buf[i];
+        }
+        temp_buffer_size += MAX_BYTES;
+        temp_buffer = (char *)realloc(temp_buffer, temp_buffer_size);
+        if(bytes_send < 0){
+            perror("Error in sending data to client\n");
+            break;
+        }
+        bzero(buf, MAX_BYTES);
+        //again website server se recieve kar rahe
+        bytes_send = recv(remoteSockerId, buf, MAX_BYTES-1, 0);
+    }
+
+    return -1;
+
+}
+
 void *thread_fn_handle_client(void *socketNew){
 
     sem_wait(&semaphore);
@@ -130,10 +231,29 @@ void *thread_fn_handle_client(void *socketNew){
                         printf("Error in handling request\n");
                     }
                 }
+                else{
+                    sendErrorMessage(socket, 400, "Bad Request");
+                    printf("Invalid request\n");
+                }
+            }
+            else{
+                printf("This Code does not suppory any method apart from GET\n");
             }
         }
-
+        ParsedRequest_destroy(request);
     }
+    else if(bytes_send_client == 0){
+        printf("Client Disconnected\n");
+    }
+    //closing the socket and freeing memory
+    shutdown(socket, SHUT_RDWR);
+    close(socket);
+    free(buffer);
+    sem_post(&semaphore);
+    sem_getvalue(&semaphore, &p);
+    printf("Current Semaphore Post Value is: %d\n", p);
+    free(tempReq);
+    return NULL;
 
 }
 
