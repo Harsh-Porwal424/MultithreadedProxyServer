@@ -17,6 +17,7 @@
 #include <time.h>
 
 #define MAX_CLIENTS 10
+#define MAX_BYTES 4096
 
 typedef struct cache_element cache_element;
 
@@ -51,7 +52,89 @@ cache_element* head;
 int cache_size;
 
 void *thread_fn_handle_client(void *socketNew){
+
+    sem_wait(&semaphore);
+    int p;
+    sem_getvalue(&semaphore, &p);
+    printf("Current Semaphore Value is: %d\n", p);
+    int *t = (int*)socketNew;
+    int socket = *t;
+    int bytes_send_client, len;
+
+    char *buffer = (char*)calloc(MAX_BYTES, sizeof(char));
+
+    bzero(buffer, MAX_BYTES);
     
+    //recv is used to receive data from a socket. it returns the number of bytes received.
+    //What is use of buffer? It's used to store the data received from the client.
+    //How it is buffer is storing data from the client ? 
+    bytes_send_client = recv(socket, buffer, MAX_BYTES, 0);
+    
+    //Taking request from client & using recv till end of http request
+    while(bytes_send_client > 0){
+        len = strlen(buffer);
+        if(strstr(buffer, "\r\n\r\n")!= NULL){
+            bytes_send_client = recv(socket, buffer + len, MAX_BYTES - len, 0);
+        }
+        else{
+            break;
+        }
+    }
+    
+    //what is bytes_send_client? It's used to store the number of bytes received from the client.
+    //Matlab buffer me client ka data store ho raha hai.
+
+    char *tempReq = (char*)malloc(strlen(buffer)*sizeof(char)+1);
+    for(int i = 0; i < strlen(buffer) && buffer[i]!= '\0'; i++){
+        tempReq[i] = buffer[i];
+    }
+    //strcpy(tempReq, buffer);
+
+    //Extracting the URL from the request
+    //Temp pointer of my LRU cache.
+    struct cache_element* temp = find(tempReq);
+
+    if(temp != NULL){
+        int size = temp->len/sizeof(char);
+        int pos = 0;
+        char* response[MAX_BYTES];
+        while(pos < size){
+            bzero(response, MAX_BYTES);
+            for(int i = 0; i < MAX_BYTES; i++){
+                response[i] = temp->data[i++];
+                pos++;
+            }
+            send(socket, response, MAX_BYTES, 0);
+        }
+        printf("Data Retrived from the cache\n");
+        printf("%s\n\n", response);
+    }
+    else if(bytes_send_client > 0){
+        len = strlen(buffer);
+        //Abb hamare pas cache me element nahi hai, to abb ham parsed_request library use kar ke http request ko parse karenge
+        ParsedRequest *request = ParsedRequest_create();
+
+        if(ParsedRequest_parse(request, buffer, len) < 0){
+            printf("Error parsing request\n");
+        }
+        else{
+            //If parsing successful, then we will handle response & create a new cache element and add it to the cache
+            bzero(buffer, MAX_BYTES);
+            if(!strcmp(request->method, "GET")){
+                //Abb hamare request me GET request hai, to abb ham server me data ko request karenge
+                //And server me data ko response karenge
+                if(request->host && request->path && checkHTTPVersion(request->version)==1){
+                    bytes_send_client = handle_request(socket,request, tempReq);
+                    if(bytes_send_client == -1){
+                        sendErrorMessage(socket, 500, "Internal Server Error");
+                        printf("Error in handling request\n");
+                    }
+                }
+            }
+        }
+
+    }
+
 }
 
 int main(int argc, char *argv[]){
