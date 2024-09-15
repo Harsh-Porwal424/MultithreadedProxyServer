@@ -1,4 +1,4 @@
-# Project Title
+# MultithreadedProxyServer
 
 This project is a proxy server that forwards requests to the specified destination.
 
